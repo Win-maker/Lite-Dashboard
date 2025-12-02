@@ -17,7 +17,7 @@ type ChartType = "bar" | "pie" | "line";
 
 interface Summary {
   label: string;
-  totalSales: number;
+  total: number;
 }
 
 export const Dashboard: React.FC = () => {
@@ -31,12 +31,58 @@ export const Dashboard: React.FC = () => {
     loadDashboardData();
   }, []);
 
+  function prepareSummaries<T>(
+    items: T[],
+    getAmount: (item: T) => number,
+    getPrimaryKey: (item: T) => string,
+    getSecondaryKey?: (item: T) => string
+  ) {
+    const primaryMap: Record<string, number> = {};
+    const secondaryMap: Record<string, number> = {};
+
+    items.forEach((item) => {
+      const amount = getAmount(item);
+      const primaryKey = getPrimaryKey(item);
+
+      // Primary summary
+      primaryMap[primaryKey] = (primaryMap[primaryKey] || 0) + amount;
+
+      // Optional secondary summary
+      if (getSecondaryKey) {
+        const secondaryKey = getSecondaryKey(item);
+        secondaryMap[secondaryKey] = (secondaryMap[secondaryKey] || 0) + amount;
+      }
+    });
+
+    return {
+      primarySummary: Object.entries(primaryMap).map(([label, total]) => ({
+        label,
+        total,
+      } )),
+      secondarySummary: Object.entries(secondaryMap).map(([label, total]) => ({
+        label,
+        total,
+      })),
+      count: items.length,
+    };
+  }
+
   const loadDashboardData = async () => {
     setLoading(true);
     try {
       const channels = await channelService.loadChannels();
       if (!channels || channels.length === 0) return;
-      prepareSummaries(channels);
+      // console.log("this is return from api", channels);
+      const result = prepareSummaries<Channel>(
+        channels,
+        (ch) => ch.teamAmount * 1000, 
+        (ch) => ch.channelName, 
+        (ch) => `Branch ${ch.branchId}` 
+      );
+
+      setShopSummary(result.primarySummary);
+      setCategorySummary(result.secondarySummary);
+      setRecordCount(result.count);
     } catch (err) {
       console.error("Error loading dashboard data:", err);
     } finally {
@@ -44,37 +90,12 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  const prepareSummaries = (channels: Channel[]) => {
-    const shopMap: Record<string, number> = {};
-    const categoryMap: Record<string, number> = {};
-
-    channels.forEach((ch) => {
-      const salesAmount = ch.teamAmount * 1000;
-
-      // Channel summary
-      shopMap[ch.channelName] = (shopMap[ch.channelName] || 0) + salesAmount;
-
-      // Branch summary
-      const categoryLabel = `Branch ${ch.branchId}`;
-      categoryMap[categoryLabel] =
-        (categoryMap[categoryLabel] || 0) + salesAmount;
-    });
-
-    setShopSummary(
-      Object.entries(shopMap).map(([label, totalSales]) => ({ label, totalSales }))
-    );
-    setCategorySummary(
-      Object.entries(categoryMap).map(([label, totalSales]) => ({ label, totalSales }))
-    );
-    setRecordCount(channels.length);
-  };
-
   const prepareChartData = (data: Summary[]): ChartData => ({
     labels: data.map((d) => d.label),
     datasets: [
       {
         label: "Sales Amount",
-        data: data.map((d) => d.totalSales),
+        data: data.map((d) => d.total),
         backgroundColor: [
           "rgba(255, 99, 132, 0.7)",
           "rgba(54, 162, 235, 0.7)",
@@ -98,7 +119,7 @@ export const Dashboard: React.FC = () => {
 
   if (loading)
     return (
-      <Center h="100vh" flexDir="column">
+      <Center h="100vh" flexDir="column" w="100vw">
         <Spinner size="xl" />
         <Text mt={4}>Loading dashboard... ({recordCount} records)</Text>
       </Center>
